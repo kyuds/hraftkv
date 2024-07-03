@@ -1,0 +1,8 @@
+syntax = "proto3";
+
+option go_package = "github.com/kyuds/hraftkv/pb";
+package pb;
+
+service HRaftKV {
+
+}
