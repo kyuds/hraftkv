@@ -24,6 +24,4 @@ go.work.sum
 # env
 .DS_Store
 /.vscode/
-
-# grpc
-*.pb.go
+hraftkv
