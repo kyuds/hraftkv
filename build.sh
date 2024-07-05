@@ -1,3 +1,3 @@
-#!/bin/zsh
+#!/bin/bash
 
 go build -o hraftkv

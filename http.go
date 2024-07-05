@@ -20,6 +20,7 @@ type Server struct {
 func NewServer(a string, k KVStore) *Server {
 	return &Server{
 		ad:      a,
+		server:  nil,
 		kvstore: k,
 	}
 }
@@ -51,26 +52,55 @@ func (s *Server) Close() {
 func (s *Server) HandleKV(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
-		m := map[string]string{}
-		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			io.WriteString(w, err.Error())
+		key := r.URL.Query().Get("key")
+		if len(key) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, "Operation needs a key query.\n")
 			return
 		}
+		ret, err := s.kvstore.Get(key)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, err.Error())
+		} else {
+			w.WriteHeader(http.StatusOK)
+			io.WriteString(w, fmt.Sprintf("%s\n", ret))
+		}
+
 	case http.MethodPost:
 		m := map[string]string{}
 		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-			w.WriteHeader(http.StatusMethodNotAllowed)
+			w.WriteHeader(http.StatusBadRequest)
 			io.WriteString(w, err.Error())
 			return
 		}
+		if len(m) == 0 {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		err := s.kvstore.Put(m)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+
 	case http.MethodDelete:
-		m := map[string]string{}
-		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
-			w.WriteHeader(http.StatusMethodNotAllowed)
-			io.WriteString(w, err.Error())
+		key := r.URL.Query().Get("key")
+		if len(key) == 0 {
+			w.WriteHeader(http.StatusBadRequest)
+			io.WriteString(w, "Operation needs a key query.\n")
 			return
 		}
+		err := s.kvstore.Delete(key)
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, err.Error())
+		} else {
+			w.WriteHeader(http.StatusOK)
+		}
+
 	default:
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		io.WriteString(w, "Only GET, POST, DELETE allowed.\n")
@@ -83,5 +113,31 @@ func (s *Server) HandleJoin(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "Join can only be called by a POST operation.\n")
 		return
 	}
-	io.WriteString(w, "JOIN!\n")
+
+	m := map[string]string{}
+	if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, err.Error())
+		return
+	}
+
+	addr, ok := m["addr"]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, "Join must provide address")
+		return
+	}
+	id, ok := m["id"]
+	if !ok {
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, "Join must provide node id")
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	io.WriteString(w, fmt.Sprintf("Joining <%s> on %s\n", id, addr))
+}
+
+func (s *Server) Addr() string {
+	return s.ad
 }
