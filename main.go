@@ -47,12 +47,13 @@ func main() {
 	fmt.Printf("Backing raft on %s in directory <%s>\n", raddr, dir)
 
 	// start kvstore
-	kv := NewRaftKV(raddr, join, id, dir)
-	if err := kv.Start(); err != nil {
+	kv := NewRaftKV(raddr, dir, id)
+	if err := kv.Start(join); err != nil {
 		fmt.Fprintf(os.Stderr, "Raft failed to start: %s\n", err.Error())
 	}
 	server := NewServer(aaddr, kv)
 	server.Start()
+	fmt.Println("Started successfully")
 
 	// wait for HTTP server to terminate.
 	terminate := make(chan os.Signal, 1)
