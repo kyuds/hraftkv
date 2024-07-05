@@ -10,7 +10,7 @@ Run the following:
 ### Launching a Cluster
 ```
 # from the command line
-./hraftkv -mem -aaddr=localhost:10000 -raddr=localhost:20000 -id=node0
+./hraftkv -aaddr=localhost:10000 -raddr=localhost:20000 -id=node0
 ```
 or generate commands for a `n` node cluster with attached script
 ```

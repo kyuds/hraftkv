@@ -11,6 +11,9 @@ import (
 //
 // assumptions
 // - underlying Raft instance will not crash
+//
+// some settings
+// - storage is always in memory
 
 func main() {
 	// parse command line arguments
