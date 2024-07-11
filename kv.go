@@ -17,7 +17,7 @@ type KVStore interface {
 	Get(key string) (string, error)
 
 	// put op (or replace)
-	Put(pair map[string]string) error
+	Put(key, value string) error
 
 	// delete op
 	Delete(key string) error
@@ -92,29 +92,76 @@ func (k *RaftKV) Start(join string) error {
 }
 
 func (k *RaftKV) Stop() {
-
+	k.raft.Shutdown().Error()
 }
 
 // return empty if is leader.
 // Otherwise, return hint for leader.
-func (k *RaftKV) IsLeader() string {
-	return ""
+func (k *RaftKV) IsLeader() (bool, string) {
+	if k.raft.State() == raft.Leader {
+		return true, ""
+	}
+	addr, _ := k.raft.LeaderWithID()
+	return false, string(addr)
 }
 
 //////////////////////////
 //     KVStore Impl     //
 //////////////////////////
 
-func (k *RaftKV) Get(key string) (string, error) {
-	return "", nil
+type cmd struct {
+	Operation string
+	Key       string
+	Value     string
 }
 
-func (k *RaftKV) Put(pair map[string]string) error {
-	return nil
+func (k *RaftKV) Get(key string) (string, error) {
+	isLeader, hint := k.IsLeader()
+	if !isLeader {
+		return "", fmt.Errorf("not leader. Leader is at %s", hint)
+	}
+	k.lock.Lock()
+	defer k.lock.Unlock()
+	return k.kv[key], nil
+}
+
+func (k *RaftKV) Put(key, value string) error {
+	isLeader, hint := k.IsLeader()
+	if !isLeader {
+		return fmt.Errorf("not leader. Leader is at %s", hint)
+	}
+
+	c := &cmd{
+		Operation: "put",
+		Key:       key,
+		Value:     value,
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	f := k.raft.Apply(b, time.Second)
+	return f.Error()
 }
 
 func (k *RaftKV) Delete(key string) error {
-	return nil
+	isLeader, hint := k.IsLeader()
+	if !isLeader {
+		return fmt.Errorf("not leader. Leader is at %s", hint)
+	}
+
+	k.lock.Lock()
+	defer k.lock.Unlock()
+	c := &cmd{
+		Operation: "del",
+		Key:       key,
+	}
+	b, err := json.Marshal(c)
+	if err != nil {
+		return err
+	}
+	f := k.raft.Apply(b, time.Second)
+	return f.Error()
 }
 
 func (k *RaftKV) Join(nodeID, address string) error {
@@ -126,16 +173,44 @@ func (k *RaftKV) Join(nodeID, address string) error {
 //////////////////////////
 
 func (k *RaftKV) Apply(l *raft.Log) interface{} {
+	var c cmd
+	err := json.Unmarshal(l.Data, &c)
+	if err != nil {
+		panic(fmt.Sprintf("failed to unmarshal command: %s", err.Error()))
+	}
+	k.lock.Lock()
+	defer k.lock.Unlock()
+
+	if c.Operation == "put" {
+		k.kv[c.Key] = c.Value
+	} else if c.Operation == "del" {
+		delete(k.kv, c.Key)
+	} else {
+		panic(fmt.Sprintf("unknown operation: %s", c.Operation))
+	}
 	return nil
 }
 
 // Snapshot returns a snapshot of the key-value store.
 func (k *RaftKV) Snapshot() (raft.FSMSnapshot, error) {
-	return nil, nil
+	k.lock.Lock()
+	defer k.lock.Unlock()
+	snp := make(map[string]string)
+	for k, v := range k.kv {
+		snp[k] = v
+	}
+	return &snapshot{kv: snp}, nil
 }
 
 // Restore stores the key-value store to a previous state.
+// Not called concurrently, per godoc
 func (k *RaftKV) Restore(rc io.ReadCloser) error {
+	tmp := make(map[string]string)
+	err := json.NewDecoder(rc).Decode(&tmp)
+	if err != nil {
+		return err
+	}
+	k.kv = tmp
 	return nil
 }
 
@@ -144,7 +219,21 @@ type snapshot struct {
 }
 
 func (ss *snapshot) Persist(sink raft.SnapshotSink) error {
-	return nil
+	b, err := json.Marshal(ss.kv)
+	if err != nil {
+		sink.Cancel()
+		return err
+	}
+	_, err = sink.Write(b)
+	if err != nil {
+		sink.Cancel()
+		return err
+	}
+	err = sink.Close()
+	if err != nil {
+		sink.Cancel()
+	}
+	return err
 }
 
 func (ss *snapshot) Release() {}
@@ -160,9 +249,8 @@ func (d *DummyKV) Get(key string) (string, error) {
 	return "dummy get!", nil
 }
 
-func (d *DummyKV) Put(pair map[string]string) error {
-	bs, _ := json.Marshal(pair)
-	fmt.Printf("dummy put: %s.\n", string(bs))
+func (d *DummyKV) Put(key, value string) error {
+	fmt.Printf("dummy put: %s, %s.\n", key, value)
 	return nil
 }
 

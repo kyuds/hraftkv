@@ -20,6 +20,6 @@ or generate commands for a `n` node cluster with attached script
 ### KV Store Operations
 ```
 curl -X GET "localhost:10000/kv?key=test"
-curl -X POST "localhost:10000/kv" -d '{"test": "success"}'
+curl -X POST "localhost:10000/kv?key=test&value=value"
 curl -X DELETE "localhost:10000/kv?key=test"
 ```

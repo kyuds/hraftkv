@@ -68,17 +68,14 @@ func (s *Server) HandleKV(w http.ResponseWriter, r *http.Request) {
 		}
 
 	case http.MethodPost:
-		m := map[string]string{}
-		if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+		key := r.URL.Query().Get("key")
+		value := r.URL.Query().Get("value")
+		if len(key) == 0 || len(value) == 0 {
 			w.WriteHeader(http.StatusBadRequest)
-			io.WriteString(w, err.Error())
+			io.WriteString(w, "Operation needs a key and value query.\n")
 			return
 		}
-		if len(m) == 0 {
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		err := s.kvstore.Put(m)
+		err := s.kvstore.Put(key, value)
 		if err != nil {
 			w.WriteHeader(http.StatusInternalServerError)
 			io.WriteString(w, err.Error())
