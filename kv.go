@@ -1,15 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/hashicorp/raft"
+	rbolt "github.com/hashicorp/raft-boltdb/v2"
 )
 
 type KVStore interface {
@@ -65,8 +69,14 @@ func (k *RaftKV) Start(join string) error {
 	if err != nil {
 		return err
 	}
-	logStore := raft.NewInmemStore()
-	stableStore := raft.NewInmemStore()
+	boltDB, err := rbolt.New(rbolt.Options{
+		Path: filepath.Join(k.dir, "raft.db"),
+	})
+	if err != nil {
+		return fmt.Errorf("new rbolt store: %s", err)
+	}
+	logStore := boltDB
+	stableStore := boltDB
 
 	k.raft, err = raft.NewRaft(config, k, logStore, stableStore, snapshots, transport)
 	if err != nil {
@@ -85,9 +95,21 @@ func (k *RaftKV) Start(join string) error {
 		}
 		k.raft.BootstrapCluster(configuration)
 	} else {
-		// TODO: join to cluster
+		// join to existing cluster
+		b, err := json.Marshal(map[string]string{"addr": k.raddr, "id": string(k.id)})
+		fmt.Printf("sending join for %s, %s\n", k.raddr, string(k.id))
+		if err != nil {
+			return fmt.Errorf("raft join error: %s", err)
+		}
+		resp, err := http.Post(
+			fmt.Sprintf("http://%s/join", join),
+			"application-type/json",
+			bytes.NewReader(b))
+		if err != nil {
+			return err
+		}
+		defer resp.Body.Close()
 	}
-
 	return nil
 }
 
@@ -165,6 +187,16 @@ func (k *RaftKV) Delete(key string) error {
 }
 
 func (k *RaftKV) Join(nodeID, address string) error {
+	configFuture := k.raft.GetConfiguration()
+	if err := configFuture.Error(); err != nil {
+		fmt.Printf("failed to get raft configuration: %v", err)
+		return err
+	}
+	f := k.raft.AddVoter(raft.ServerID(nodeID), raft.ServerAddress(address), 0, 0)
+	if f.Error() != nil {
+		return f.Error()
+	}
+	fmt.Printf("node %s at %s joined successfully", nodeID, address)
 	return nil
 }
 

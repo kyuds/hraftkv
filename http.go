@@ -130,6 +130,11 @@ func (s *Server) HandleJoin(w http.ResponseWriter, r *http.Request) {
 		io.WriteString(w, "Join must provide node id")
 		return
 	}
+	if err := s.kvstore.Join(id, addr); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		io.WriteString(w, fmt.Sprintf("error joining: %s", err.Error()))
+		return
+	}
 
 	w.WriteHeader(http.StatusOK)
 	io.WriteString(w, fmt.Sprintf("Joining <%s> on %s\n", id, addr))
